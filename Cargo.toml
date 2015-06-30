@@ -1,0 +1,11 @@
+[package]
+
+name = "hlaipf"
+version = "0.0.1"
+authors = [ "Andreas Streichardt <andreas.streichardt@gmail.com>" ]
+
+[dependencies]
+git2 = "0.2.12"
+docopt = "*"
+rustc-serialize = "*"
+regex = "0.1.8"
