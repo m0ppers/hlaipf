@@ -8,41 +8,48 @@ use docopt::Docopt;
 use std::fs;
 use std::path::{PathBuf, Path};
 
-fn diff_contains_php(repo: &Repository, from: Tree, to: Tree) -> bool {
+fn diff_contains_php(repo: Repository, from: Tree, to: Tree) -> bool {
     let mut opts = DiffOptions::new();
-    let diff = Diff::tree_to_tree(repo, Some(&from), Some(&to), Some(&mut opts));
     
-    diff.unwrap().deltas().any(|delta| delta.new_file().path().unwrap().to_str().unwrap().ends_with(".php"))
+    let fail_repo = Repository::open(repo.path());
+    if fail_repo.is_ok() {
+        let diff = Diff::tree_to_tree(&fail_repo.unwrap(), Some(&from), Some(&to), Some(&mut opts));
+        return diff.unwrap().deltas().any(|delta| delta.new_file().path().unwrap().to_str().unwrap().ends_with(".php"))
+    }
+    false
 }
 
-fn is_php(repo: &Repository, commit: Commit) -> bool {
+fn is_php(repo: Repository, commit: Commit) -> bool {
     println!("Parents: {}", commit.parents().count());
     match commit.parents().count() {
+        // mop: todo..first commit. need to find out how to handle that
         0 => false,
         1 => diff_contains_php(repo, commit.parent(0).unwrap().tree().unwrap(), commit.tree().unwrap()),
         _ => false,
     }
 }
 
-fn find_php(repo: Repository) -> Result<(), Error> {
-    let headrev = try!(repo.revparse_single("HEAD"));
+fn find_php<'a>(repo: &'a Repository) -> Result<Option<Commit<'a>>, Error> {
+    return Ok(None);
+    /*let headrev = try!(repo.revparse_single("HEAD"));
     let headoid = headrev.id();
     
     let mut revwalk = try!(repo.revwalk());
     revwalk.set_sorting(git2::SORT_TIME);
     revwalk.push(headoid);
-    
-    for id in revwalk {
+*/
+    /*for id in revwalk {
         let commit = try!(repo.find_commit(id));
         if commit.author().email().unwrap().contains("andreas.streichardt@gmail.com") {
             println!("ID => {}, author => {}, tree_id => {}", id, commit.author(), commit.tree_id());
             
-            if is_php(&repo, commit) {
-                println!("JA")
-            }
+            //if is_php(repo, commit) {
+                return Ok(Some(commit))
+            //}
         }
     }
-    Ok(())
+    Ok(None)
+    */
 }
 
 // mop: a mess..it SHOULD be an abstract collection of repositories like "this is my project directory" "this is my github account" etc.
@@ -84,6 +91,40 @@ impl Iterator for RepositoryCollection {
     }
 }
 
+struct PhpCommitLocator {
+    repo: Repository,
+}
+
+impl PhpCommitLocator {
+    fn new(repo: Repository) -> PhpCommitLocator {
+        PhpCommitLocator {
+            repo: repo,
+        }
+    }
+
+    fn fetch_earliest_php_commit(&mut self) -> Option<HlaipfResult> {
+        None
+    }
+}
+
+struct HlaipfResult<'repo> {
+    repo: Repository,
+    commit: Commit<'repo>,
+}
+
+impl<'repo> HlaipfResult<'repo> {
+    fn new(repo: Repository, commit: Commit) -> HlaipfResult {
+        HlaipfResult {
+            repo: repo,
+            commit: commit,
+        }
+    }
+
+    fn is_php(&self) -> bool {
+        true
+    }
+}
+
 #[derive(RustcDecodable)]
 struct Args {
     arg_repositorieslocation: Vec<String>,
@@ -99,14 +140,44 @@ fn run(args: &Args) -> Result<(), Error> {
         .filter(|repository_collection_opt| repository_collection_opt.is_some())
         .map(|repository_collection| repository_collection.unwrap())
     ;
+     
+    let results:Vec<HlaipfResult> = repository_collections.fold(Vec::new(), |mut results, repository_collection| {
+        repository_collection
+        .map(|repository| {
+            PhpCommitLocator::new(repository)
+        })
+        .map(|mut php_commit_locator: PhpCommitLocator| {
+            php_commit_locator.fetch_earliest_php_commit()
+        })
+        .filter(|result: &Option<HlaipfResult>| {
+            result.is_some()
+        })
+        .map(|result: Option<HlaipfResult>| {
+            result.unwrap()
+        })
+        .fold(results, |mut results, result: HlaipfResult| {
+            results.push(result);
+            results
+        })
+    });
 
-    for repository_collection in repository_collections {
-        println!("COLLECTION NAME => {}", repository_collection.name);
-
+    /*for repository_collection in repository_collections {
         for repository in repository_collection {
-            println!("HEHE {:?}", repository.path());
-            find_php(repository);
+            let find_result = find_php(&repository);
+            if find_result.is_ok() {
+                // mop: XXX silent error :S
+                let php_commit = find_result.unwrap();
+                if php_commit.is_some() {
+                    let result = HlaipfResult { repo: &repository, commit: &php_commit.unwrap() };
+                    results.push(result);
+                }
+            }
         }
+    }
+    */
+
+    for result in results.iter() {
+        println!("RESULT {}", result.commit.author())
     }
     Ok(())
 }
